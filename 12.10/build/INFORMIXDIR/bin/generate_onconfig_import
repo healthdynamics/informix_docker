@@ -1,0 +1,55 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+declare -A onconfig
+
+source_onconfig () {
+        while read line; do
+                IFS=' ' read -a array1 <<< "$line"
+                if [[ ${array1[0]} =~ (\s)*^\# ]]; then
+                        continue
+                fi
+                if [[ ${array1[0]} =~ [a-zA-Z0-9]+ ]]; then
+                     onconfig[${array1[0]}]=$line
+                fi
+        done < $1
+}
+
+write_onconfig () {
+
+	if [ -e $INFORMIXETCDIR/onconfig.import ]; then
+		rm $INFORMIXETCDIR/onconfig.import
+	fi
+
+        echo "##### AUTO-GENERATED ETCURATION FILE #####" >> $INFORMIXETCDIR/onconfig.import
+        for i in "${!onconfig[@]}"
+        do
+                echo "${onconfig[$i]}" >> $INFORMIXETCDIR/onconfig.import
+        done
+        chown informix:informix $INFORMIXETCDIR/onconfig.import
+}
+
+generate_onconfig () {
+
+      	source_onconfig $INFORMIXETCDIR/onconfig.std
+        source_onconfig $INFORMIXETCDIR/onconfig.base
+
+        if [ -e $INFORMIXINITDIR/onconfig.custom ]; then
+                source_onconfig $INFORMIXINITDIR/onconfig.custom
+        else
+                source_onconfig $INFORMIXETCDIR/onconfig.default
+        fi
+
+        source_onconfig $INFORMIXETCDIR/onconfig.immutable
+	onconfig["MAX_PDQPRIORITY"]="MAX_PDQPRIORITY 100"
+}
+
+generate_onconfig
+write_onconfig
+

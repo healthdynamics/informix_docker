@@ -1,0 +1,45 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+log_info () {
+        logger -t "handle_alarm_23" -p 6 "$1"
+}
+
+
+log_critical () {
+        logger -t "handle_alarm_23" -p 2 "$1"
+}
+
+error () {
+        log_critical "$0:$1 $2 failed [status:$3]"
+        exit 1
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+
+log_info "Backing up logical log."
+echo "n" | ontape -a 2>&1 >> /dev/null
+
+baseline=$(cat $INFORMIXDATADIR/baseline)
+
+for f in $LTAPEDEV/*
+do
+	log=`basename $f`
+	echo "$log" >> /tmp/$baseline.logs
+	log_info "Storing logical log backup [/cdp/$log]."
+	put_file /tmp/$baseline.logs /cdp/$baseline.logs
+	put_file $f /cdp/$log
+	rm $f
+done
+
+rm /tmp/$baseline.logs
+
+exit 0 
+

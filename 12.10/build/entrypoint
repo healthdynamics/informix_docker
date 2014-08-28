@@ -1,0 +1,210 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+# Main entrypoint for the Docker container.
+
+INSTALLED=$INFORMIXDATADIR/installed
+
+log () {
+	echo "$1"
+	logger -t "entrypoint" "$1"
+}
+
+adjust_informix_files () {
+
+        log "Adjusting Informix files."
+
+	if [ ! -e $INFORMIXDATADIR ]; then
+        	mkdir $INFORMIXDATADIR
+	fi
+
+        mv $INFORMIXDIR/tmp $INFORMIXDATADIR
+        ln -s $INFORMIXDATADIR/tmp $INFORMIXDIR/tmp
+        mkdir $INFORMIXDATADIR/INFORMIXTMP
+        chown informix:informix $INFORMIXDATADIR/INFORMIXTMP
+        ln -s $INFORMIXDATADIR/INFORMIXTMP /INFORMIXTMP
+        chown -h informix:informix /INFORMIXTMP
+
+        mkdir $INFORMIXDATADIR/tapedev
+        ln -s $INFORMIXDATADIR/tapedev $LTAPEDEV
+	chmod 770 $INFORMIXDATADIR/tapedev
+        chown -h informix:informix $LTAPEDEV
+        chmod 770 $LTAPEDEV
+
+        chown -R informix:informix $INFORMIXDATADIR
+
+        mkdir $INFORMIXCHUNKSDIR
+        chown informix:informix $INFORMIXCHUNKSDIR
+
+        mkdir $INFORMIXDEVLINKSDIR
+        chown informix:informix $INFORMIXDEVLINKSDIR
+
+}
+
+install_instance () {
+
+	adjust_informix_files
+
+        log "Generating sqlhosts file."
+        echo "informix_shm         onipcshm        $HOSTNAME       fakeport" >> $INFORMIXETCDIR/sqlhosts.informix
+        echo "informix_tcp         onsoctcp        $HOSTNAME       sqlexec" >> $INFORMIXETCDIR/sqlhosts.informix
+
+	echo "sqlexec        1536/tcp       #IBM Informix" >> /etc/services
+	
+	if [ -e $INFORMIXINITDIR/create_instance ]; then
+		log "Creating instance [$INFORMIXINITDIR/create_instance]."
+		chmod 700 $INFORMIXINITDIR/create_instance
+		su - informix -c "$INFORMIXINITDIR/create_instance"
+	else
+		log "Creating instance [create_instance_simple]."
+		su - informix -c "create_instance_simple"
+	fi
+
+	if [ -e $INFORMIXINITDIR/put_file ]; then
+                ln -s $INFORMIXINITDIR/put_file $INFORMIXBINDIR/put_file
+        else
+        	ln -s $INFORMIXBINDIR/put_filesystem_file $INFORMIXBINDIR/put_file        
+        fi
+	
+	chown -h informix:informix $INFORMIXBINDIR/put_file
+
+	if [ -e $INFORMIXINITDIR/get_file ]; then
+                ln -s $INFORMIXINITDIR/get_file $INFORMIXBINDIR/get_file
+        else
+                ln -s $INFORMIXBINDIR/get_filesystem_file $INFORMIXBINDIR/get_file
+        fi
+
+	chown -h informix:informix $INFORMIXBINDIR/get_file
+
+	if [ ! -z $PASSWORD ]; then
+                echo "informix:$PASSWORD" | chpasswd -e
+        fi
+
+
+}
+
+complete_install (){
+        if [ ! -e $INSTALLED ]; then
+		log "Completing install."
+		install_instance
+		touch $INSTALLED
+	fi
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        echo "An error occurred [script: $0, line $1, command $2, error: $3]." 
+        exit 1
+}
+
+set_ev (){
+	sed -i 's|'^$1.*'|'$2'|g' $3
+}
+
+setup () {
+
+	cron
+
+	log "Setting up environment".
+
+	if [ ! -z $STORAGE_PATH_PREFIX ]; then
+		set_ev "STORAGE_PATH_PREFIX" $STORAGE_PATH_PREFIX /usr/lib/informix/etc/all.bashrc
+	fi
+
+	if [ ! -z $PRIVATEKEY ]; then
+                set_ev "PRIVATEKEY" $PRIVATEKEY /usr/lib/informix/etc/all.bashrc
+	fi
+
+	if [ ! -z $BASELINESCHEDULE ]; then
+		set_ev "BASELINESCHEDULE" $BASELINESCHEDULE /usr/lib/informix/etc/cserve.bashrc
+        fi
+
+	if [ ! -z $FLUSHINTERVAL ]; then
+                set_ev "FLUSHINTERVAL" $FLUSHINTERVAL /usr/lib/informix/etc/cserve.bashrc
+        fi
+
+	. /usr/lib/informix/etc/all.bashrc
+
+	log "Redirecting Informix log to syslog [$INFORMIXLOGDIR/online.log]."
+
+	if [ ! -e $INFORMIXLOGDIR ]; then
+		mkdir $INFORMIXLOGDIR
+        	touch $INFORMIXLOGDIR/online.log
+	fi
+
+	chown -R informix:informix $INFORMIXLOGDIR
+		
+	service rsyslog start
+	tail -f $INFORMIXLOGDIR/online.log | awk -Winteractive '$1="";/^\d*/ {print }' | logger -t informix &
+
+	fix_dev_files
+
+	complete_install
+}
+
+fix_dev_files () {
+	$INFORMIXBINDIR/fix_dev_files
+}
+
+teardown () {
+	log "Killing background jobs."
+	kill $(jobs -p)
+	kill $(ps -ef | awk '/^syslog/ {print $2}')	
+	kill $(ps -ef | awk '$8=="cron" {print $2}')
+}
+
+run_command () {
+
+	myargs=($@)
+	cmdargs=("${myargs[@]:1:${#myargs[@]}}")
+	case $1 in import)
+		su - informix -c "cimport $cmdargs"
+		;;
+	export)
+		su - informix -c "cexport $cmdargs"
+                ;;
+	serve)
+		 su - informix -c "cserve $cmdargs"
+                ;;
+	backup)
+		su - informix -c "cbackup $cmdargs"
+		;;
+	restore)
+		su - informix -c "crestore $cmdargs"
+		;;
+	migrate)
+		su - informix -c "cmigrate $cmdargs"
+		;;
+	*)
+		if [ -z "$1" ]; then
+                	su - informix -c "cserve"
+        	else
+			echo "Unknown command $1"
+		fi	
+		;;
+	esac
+
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        echo "An error occurred [script: $0, line $1, command $2, error: $3]." 
+        exit 1
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+trap teardown SIGINT SIGTERM EXIT
+
+setup
+complete_install
+run_command $@
+
+exit 0 
+

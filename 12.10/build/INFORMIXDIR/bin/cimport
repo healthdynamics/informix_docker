@@ -1,0 +1,84 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+log () {
+	echo "$1"
+	logger -t "import" "$1"
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        exit 1
+}
+
+setup(){
+	mkdir -p /tmp/import/extracted
+	chmod -R 711 /tmp/import
+
+	log "Generating optimized onconfig for imports [$INFORMIXETCDIR/onconfig.import]."
+
+	generate_onconfig_import
+
+	rm /home/informix/.bashrc
+        ln -s $INFORMIXETCDIR/cimport.bashrc /home/informix/.bashrc
+
+	log "Starting Informix in Single User mode [oninit -j]."
+
+	oninit -j
+
+}
+
+teardown () {
+	rm -rf /tmp/import
+
+	log "Shutting down Informix [onmode -ky]."
+	onmode -ky
+
+	rm /home/informix/.bashrc
+	ln -s $INFORMIXETCDIR/all.bashrc /home/informix/.bashrc
+
+}
+
+import () {
+	log "Getting export file [$1]."
+	get_file $1 /tmp/import/import.tar
+	tar -C /tmp/import/extracted -xf /tmp/import/import.tar
+
+	file=`basename $1`
+	for f in `ls -d /tmp/import/extracted/$file/*.exp`; do
+        	dbdir=`basename $f`
+        	IFS='.' read -a array2 <<< "$dbdir"
+
+		if [[ "" != "$(echo "select * from sysdatabases where name='${array2[0]}'" | dbaccess sysmaster | grep ${array2[0]})" ]]; then
+      
+			log "Dropping database [${array2[0]}]".
+	              	cmd="DROP DATABASE ${array2[0]}"
+                	echo $cmd | dbaccess
+
+		fi
+
+        	log "Importing database [${array2[0]}]."
+        	#TODO provide flag for -d
+        	dbimport ${array2[0]} -d ${array2[0]} -i /tmp/import/extracted/$file
+        	log "Enabling transactions [ontape -s -B ${array2[0]} -t /dev/null]."
+        	echo 0 | ontape -s -B ${array2[0]} -t /dev/null
+	done
+
+	log "Import completed".
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+trap teardown SIGINT SIGTERM EXIT
+
+setup
+import $1
+
+exit 0	
+

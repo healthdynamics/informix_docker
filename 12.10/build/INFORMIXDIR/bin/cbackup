@@ -1,0 +1,49 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+log () {
+	echo "$1"
+	logger -t "entrypoint" "$1"
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        exit 1
+}
+
+setup () {
+	mkdir -p /tmp/backup
+	log "Starting Informix in Single User mode [oninit -j]."
+	oninit -j
+}
+
+teardown () {
+	rm -rf /tmp/backup
+	log "Shutting down Informix [onmode -ky]."
+	onmode -ky
+}
+
+
+
+backup () {
+	file=`basename $1`
+	log "Performing level 0 backup [ontape -s -L 0 -t STDIO > /tmp/backup/$file]"
+	ontape -s -L 0 -t STDIO > /tmp/backup/$file
+	log "Storing backup [$1]."
+	put_file /tmp/backup/$file $1
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+trap teardown SIGINT SIGTERM EXIT
+
+setup
+backup $1
+
+

@@ -1,0 +1,110 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+
+log () {
+	echo "$1"
+	logger -t "entrypoint" "$1"
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        exit 1
+}
+
+get_restore_file () {
+	 get_file $1 $2
+	 chmod 660 $2
+}
+
+restore_ () {
+	echo -e \"$2\" | ontape -r -t $1
+	onmode -ky
+}
+
+restore_wo_logs () {
+	file=`basename $1`
+	get_restore_file $1 /tmp/restore/$file
+	restore_ /tmp/restore/$file "\ny\nn\nn\nn\n"
+}
+
+
+restore_to_log () {
+	log "Restoring to log [baseline=$1, log=$2]."	
+	# get the log index
+	get_file $1/$2.logs /tmp/restore/$2.logs
+
+	logs=()
+	
+	while read line
+	do
+		logs+=($line)
+	done < /tmp/restore/$2.logs
+
+	if [ -z $3 ]; then
+        	last=${#logs[@]}
+	else
+		last=$3
+	fi
+	
+	get_restore_file $1/$2 /tmp/restore/$2
+
+	#TODO it's possible that we're shy a log if the last 
+	for ((i=0; i < $last;  i++ ))
+       	do
+		srchost=`echo ${logs[$i]} | awk '{split($0,array,"_0_Log")} END {print array[1]}'`
+
+		if [[ ! "$srchost" == "$HOSTNAME" ]]; then
+			log "Correcting log file host [source=$srchost, current=$HOSTNAME]."
+        		dst=`echo ${logs[$i]} | sed "s/$srchost/$HOSTNAME/g"`
+		else
+        		dst=${logs[$i]}
+		fi
+
+                get_restore_file $1/${logs[$i]} $LTAPEDEV/$dst
+        done
+
+	restore_ /tmp/restore/$2 "\ny\nn\nn\ny\n"
+	
+}
+
+setup () {
+	mkdir /tmp/restore
+}
+
+teardown () {
+	rm -rf /tmp/restore
+}
+
+restore () {
+	file=`basename $1`
+	path=`dirname $1`
+	log_re='.+\+[0-9]+$'
+	latest_re='.+\+'
+
+	IFS='+' read -a parsed <<< "$file"
+
+	if [[ $1 =~ $log_re ]]; then
+        	restore_to_log $path ${parsed[0]} ${parsed[1]}
+	elif [[ $1 =~ $latest_re ]]; then
+        	restore_to_log $path ${parsed[0]} ${parsed[1]}
+	else
+        	restore_wo_logs $1
+	fi
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+trap teardown SIGINT SIGTERM EXIT
+
+setup
+restore $1
+
+
+

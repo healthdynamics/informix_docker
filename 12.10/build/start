@@ -1,0 +1,71 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+BUILDDIR=/tmp/build
+
+install_packages () {
+	apt-get install -y libaio1
+}
+
+install_build_files () {
+	mkdir -p $INFORMIXDIR
+	cp -R $BUILDDIR/INFORMIXDIR/* $INFORMIXDIR
+	chmod ug+x $INFORMIXDIR/bin/*
+	chown -R informix:informix $INFORMIXDIR
+	cp $BUILDDIR/entrypoint /usr/sbin/entrypoint 
+	chmod +x /usr/sbin/entrypoint 
+
+	ln -s $INFORMIXDIR/etc/informix.profile /home/informix/.profile
+	ln -s $INFORMIXDIR/etc/all.bashrc /home/informix/.bashrc
+
+	chown -R informix:informix /home/informix
+
+	# Create an empty file to avoid warning
+	touch $INFORMIXDIR/etc/sqlhosts.informix
+        chown informix:informix $INFORMIXDIR/etc/sqlhosts.informix
+
+}
+
+setup_informix_user () {
+	addgroup --gid 2001 --system informix >> /dev/null 2>&1
+	adduser --uid 2001 --system --ingroup informix --shell /bin/bash --home /home/informix informix >> /dev/null 2>&1
+}
+
+grant_informix_group_su () {
+	echo "%informix ALL= NOPASSWD: /bin/su - informix" >> /etc/sudoers
+}
+
+generate_fix_dev_files () {
+
+	echo "#!/bin/bash" >> $INFORMIXDIR/bin/fix_dev_files
+
+	generate_fix_for_directory $INFORMIXDIR/bin
+	generate_fix_for_directory $INFORMIXDIR/etc
+	
+	chown informix:informix $INFORMIXDIR/bin/fix_dev_files
+	chmod +x $INFORMIXDIR/bin/fix_dev_files
+}
+
+generate_fix_for_directory () {
+	for f in `ls $1`
+        do
+                echo "chown informix:informix $1/$f"  >> $INFORMIXDIR/bin/fix_dev_files
+        done
+}
+
+
+set -e
+
+. $BUILDDIR/INFORMIXDIR/etc/all.bashrc
+
+install_packages
+setup_informix_user
+install_build_files
+grant_informix_group_su
+generate_fix_dev_files

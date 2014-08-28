@@ -1,0 +1,24 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  # 
+# found in the LICENSE file.                                                   #
+################################################################################
+
+BUILDDIR=/tmp/build
+
+install_informix_engine () {
+	if [ -e $INFORMIXINITDIR/install.properties ]; then
+        	$BUILDDIR/ids_install -f $INFORMIXINITDIR/install.properties -i silent 
+	else
+        	$BUILDDIR/ids_install -f $BUILDDIR/install.properties -i silent
+	fi;
+}
+
+set -e
+
+. $BUILDDIR/INFORMIXDIR/etc/all.bashrc
+
+install_informix_engine

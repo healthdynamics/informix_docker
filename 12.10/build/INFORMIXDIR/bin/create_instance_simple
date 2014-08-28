@@ -1,0 +1,185 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+declare -A onconfig
+
+log() {
+	echo $1
+	logger -t "create_instance_simple" "$1"
+}
+
+source_onconfig () {
+	log "Sourcing [$1]."
+        while read line; do
+                IFS=' ' read -a array1 <<< "$line"
+                if [[ ${array1[0]} =~ (\s)*^\# ]]; then
+                        continue
+                fi
+                if [[ ${array1[0]} =~ [a-zA-Z0-9]+ ]]; then
+                     onconfig[${array1[0]}]=$line
+              	fi
+        done < $1
+}
+
+write_onconfig () {
+	log "Writing onconfig [$INFORMIXETCDIR/onconfig.informix]."
+	rm -f $INFORMIXETCDIR/onconfig.informix
+        echo "##### AUTO-GENERATED CONFIGURATION FILE #####" >> $INFORMIXETCDIR/onconfig.informix
+        for i in "${!onconfig[@]}"
+        do
+                echo "${onconfig[$i]}" >> $INFORMIXETCDIR/onconfig.informix
+        done
+	chown informix:informix $INFORMIXETCDIR/onconfig.informix
+}
+
+generate_onconfig () {
+
+	log "Generating onconfig."
+
+        source_onconfig $INFORMIXETCDIR/onconfig.std
+	source_onconfig $INFORMIXETCDIR/onconfig.base
+
+        if [ -e $INFORMIXINITDIR/onconfig.custom ]; then
+                source_onconfig $INFORMIXINITDIR/onconfig.custom
+        else
+                source_onconfig $INFORMIXETCDIR/onconfig.default
+        fi
+
+        source_onconfig $INFORMIXETCDIR/onconfig.immutable
+}
+
+touch_and_link () {
+	log "Linking space file $2/[$1]."
+
+	if [ ! -e $INFORMIXCHUNKSDIR/$2 ]; then
+		mkdir $INFORMIXCHUNKSDIR/$2
+		chown informix:informix $INFORMIXCHUNKSDIR/$2
+	fi
+
+	touch $INFORMIXCHUNKSDIR/$2/$1
+	chmod 660 $INFORMIXCHUNKSDIR/$2/$1
+#	chown -R informix:informix $INFORMIXCHUNKSDIR/$1
+ 
+        ln -s $INFORMIXCHUNKSDIR/$2/$1 $INFORMIXDEVLINKSDIR/$1
+        chmod 660 $INFORMIXDEVLINKSDIR/$1 
+	chown informix:informix $INFORMIXDEVLINKSDIR/$1
+}
+
+add_space () {
+	touch_and_link $1 $3	
+	log "Adding space [$1]."
+	onspaces -c -d $1  -p $INFORMIXDEVLINKSDIR/$1 -o 0 -s $2
+}
+
+initialize_instance () {
+	log "Initializing instance."
+	touch_and_link "rootdbs" "rootdbs"
+	log "Initializing Informix [oninit -i -w]."
+	echo y | oninit -i -w > $INFORMIXLOGDIR/online.log 2>&1
+}
+
+drop_root_logs () {
+
+	log "Advancing current logical to first log in logbds."
+
+	for (( i=1; i<= 3; i++))
+	do
+        	onmode -l
+	done
+
+	log "Backing up logical logs."
+	echo y | ontape -a
+        rm -f $LTAPEDEV/*
+
+	log "Dropping logical logs in rootdbs."
+	for (( i=1; i<= 6; i++))
+	do      
+		onparams -d -y -l $i
+	done
+}
+
+add_log_space () {
+	add_space $1 $2 $1
+	for (( i=1; i<= $3; i++))
+	do
+        	onparams -a -d $1
+	done
+}
+
+create_spaces  () { 
+     while read line; do
+                IFS=' ' read -a array1 <<< "$line"
+		echo "line is $line"
+                if  [[ ${#array1[@]} -eq 2 ]]; then
+                        add_space ${array1[0]} ${array1[1]} ${array1[0]}
+                else
+                        add_space ${array1[0]} ${array1[1]} ${array1[2]}
+                fi
+        done < $1
+}
+
+move_physical_log () {
+
+ 	IFS=' ' read -a array1 <<< "${onconfig['PHYSFILE']}"
+        physfile="${array1[1]}"
+        physdbs_size=$(($physfile+2000))
+        add_space "physdbs" $physdbs_size "physdbs"
+
+        log "Moving physical log to physdbs."
+        onparams -p -y -s $physfile -d physdbs
+
+}
+
+move_logical_logs () {
+	log "Moving logical logs."
+
+	IFS=' ' read -a array1 <<< "${onconfig['LOGSIZE']}"
+        logsize="${array1[1]}"
+        IFS=' ' read -a array1 <<< "${onconfig['LOGFILES']}"
+        logfiles="${array1[1]}"
+        logdbs_size=$(($logsize*$logfiles+2000))
+
+        log "Adding new logspace [size:$logdbs_size, logfiles:$logfiles]"
+        add_log_space "logdbs" $logdbs_size $logfiles
+
+        log "Dropping logical logs from rootdbs."
+        drop_root_logs
+
+}
+
+create_data_dbspaces () {
+	if [ -e $INFORMIXINITDIR/spaces.custom ]; then
+		log "Creating data dbspaces [$INFORMIXINITDIR/spaces.custom]."
+                create_spaces $INFORMIXINITDIR/spaces.custom
+        else
+                log "Creating data dbspaces [$INFORMIXETCDIR/spaces.default]."
+                create_spaces $INFORMIXETCDIR/spaces.default
+        fi
+}
+
+layout_dbspaces () {
+	move_physical_log
+	move_logical_logs	
+	create_data_dbspaces
+}
+
+
+finalize_instance () {
+	log "Finalizing instance."
+	log "Performing L0 backup [/dev/null]."
+	ontape -s -L 0 -t STDIO > /dev/null
+	log "Shutting down Informix [onmode -ky]."
+	onmode -ky
+}
+
+generate_onconfig
+write_onconfig
+initialize_instance
+layout_dbspaces
+finalize_instance

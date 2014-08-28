@@ -1,0 +1,69 @@
+#!/bin/bash
+
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+log () {
+	echo "$1"
+	logger -t "entrypoint" "$1"
+}
+
+error () {
+        log "$0:$1 $2 failed [status:$3]"
+        exit 1
+}
+
+setup () {
+	mkdir -p /tmp/export
+	chown -R informix:informix /tmp/export
+	log "Starting Informix in Single User mode [oninit -j]."
+	oninit -j
+}
+
+teardown () {
+
+	rm -rf /tmp/export
+
+	log "Shutting down Informix [onmode -ky]."
+	onmode -ky
+
+}
+
+export_ () {
+
+	#TODO Allow user to specifiy databases to export
+	log "Exporting databases."
+
+	file=`basename $1`
+	mkdir /tmp/export/$file
+	chown informix:informix /tmp/export/$file
+
+	for db in `echo "select name from sysdatabases where name not like 'sys%';" | dbaccess sysmaster | awk '{ print $2 }'`
+	do
+        	log "Exporting database [$db]."
+        	cd /tmp/export/$file
+        	dbexport $db
+	done
+
+	log "Generating export archive."
+
+	echo "tar -C /tmp/export -cf $file.tar $file"
+	tar -C /tmp/export -cf /tmp/export/$file.tar $file
+
+	log "Storing archive [$1]."
+	put_file "/tmp/export/$file.tar" $1
+
+}
+
+trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
+set -e
+trap teardown SIGINT SIGTERM EXIT
+
+setup
+export_ $1
+
+exit 0

@@ -1,0 +1,19 @@
+################################################################################
+# Copyright (c) 2014, the informix-sa project authors.                         #
+# Please see the AUTHORS file for details. All rights reserved. Use of this    #
+# source code is governed by the BSD 3 Clause license, a copy of which can be  #
+# found in the LICENSE file.                                                   #
+################################################################################
+
+ROOTNAME rootdbs
+ROOTSIZE 1000000
+ROOTPATH $INFORMIXDEVLINKSDIR/rootdbs
+LTAPEDEV $INFORMIXDATADIR/tapedev
+MSGPATH $INFORMIXLOGDIR/online.log
+CONSOLE $INFORMIXLOGDIR/online.con
+DRLOSTFOUND $INFORMIXDATADIR/dr.lostfound
+ALARMPROGRAM $INFORMIXDIR/bin/handle_alarm
+GRIDCOPY_DIR $INFORMIXDATADIR
+DBSERVERNAME informix_shm
+DBSERVERALIASES informix_tcp
+DIRECT_IO 1
