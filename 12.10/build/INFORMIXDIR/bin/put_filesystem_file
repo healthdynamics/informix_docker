@@ -28,7 +28,14 @@ configure_gpg
 file=`basename $2`
 dstdir=$STORAGE_PATH_PREFIX`dirname $2`
 
-mkdir -p $dstdir
+if [ ! -e $STORAGE_PATH_PREFIX ]; then
+	log "Creating storage directory [$STORAGE_PATH_PREFIX]."
+	mkdir -p $STORAGE_PATH_PREFIX
+fi
+
+if [ ! -e $dstdir ]; then
+	mkdir -p $dstdir
+fi
 
 gpg --output $dstdir/.$file.sig --detach-sig $1
 gpg --output $dstdir/.$file.gpg --default-recipient-self --trust-model always --encrypt $1

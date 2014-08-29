@@ -29,6 +29,6 @@ rm -rf /tmp/build
 
 EXPOSE 1536
 
-ENTRYPOINT entrypoint
+ENTRYPOINT ["entrypoint"]
 
 

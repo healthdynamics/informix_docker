@@ -202,6 +202,8 @@ trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
 set -e
 trap teardown SIGINT SIGTERM EXIT
 
+log "entrypoint [$@]."
+
 setup
 complete_install
 run_command $@
