@@ -28,6 +28,8 @@ setup(){
 	rm /home/informix/.bashrc
         ln -s $INFORMIXETCDIR/cimport.bashrc /home/informix/.bashrc
 
+	. $HOME/.bashrc
+
 	log "Starting Informix in Single User mode [oninit -j]."
 
 	oninit -j

@@ -29,6 +29,7 @@ rm -rf /tmp/build
 
 EXPOSE 1536
 
+CMD ["serve"]
 ENTRYPOINT ["entrypoint"]
 
 
