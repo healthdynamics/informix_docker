@@ -14,26 +14,35 @@ log () {
 	logger -t "entrypoint" "$1"
 }
 
-move_and_link () {
- 	if [ -e $1 ]; then
-                rm $1
+move_and_link_directory () {
+
+	if [ ! -e $2 ]; then
+                mkdir $2
         fi
 
-	if [ ! -e $2] then
-                mkdir $2
-		chown informix:informix $2
+ 	if [ -e $1 ]; then
+                rm -Rf $1
+		ln -s $2 $1
         fi
-	ln -s $2 $1
-	chown -h informix:informix $1
+
+	chown informix:informix $2
 }
 
 ensure_directory () {
-	if [ ! -e $1]; then
+	if [ ! -e $1 ]; then
 		mkdir -p $1
 	fi
 	chown -R informix:informix $1 
 	chmod 770 $1
 }
+
+link () {
+	if [ ! -e $2 ]; then
+		ln -s $1 $2
+		chown -h informix:informix $2
+	fi
+}
+
 
 adjust_filesystem () {
 
@@ -44,38 +53,42 @@ adjust_filesystem () {
         ensure_directory $INFORMIXCHUNKSDIR
         ensure_directory $INFORMIXDEVLINKSDIR 
 
-	move_and_link $INFORMIXDIR/tmp $INFORMIXDATADIR/tmp
-	move_and_link /INFORMIXTMP $INFORMIXDATADIR/INFORMIXTMP
+	move_and_link_directory $INFORMIXDIR/tmp $INFORMIXDATADIR/tmp
+	move_and_link_directory /INFORMIXTMP $INFORMIXDATADIR/INFORMIXTMP
 	
 	ensure_directory $INFORMIXDATADIR/tapedev
 
-        ln -s $INFORMIXDATADIR/tapedev $LTAPEDEV
-
-        chown -h informix:informix $LTAPEDEV
+        link $INFORMIXDATADIR/tapedev $LTAPEDEV
 
 	if [ -e $INFORMIXINITDIR/put_file ]; then
-                ln -s $INFORMIXINITDIR/put_file $INFORMIXBINDIR/put_file
+        	link $INFORMIXINITDIR/put_file $INFORMIXBINDIR/put_file
         else
-                ln -s $INFORMIXBINDIR/put_filesystem_file $INFORMIXBINDIR/put_file
+                link  $INFORMIXBINDIR/put_filesystem_file $INFORMIXBINDIR/put_file
         fi
-
-        chown -h informix:informix $INFORMIXBINDIR/put_file
 
         if [ -e $INFORMIXINITDIR/get_file ]; then
-                ln -s $INFORMIXINITDIR/get_file $INFORMIXBINDIR/get_file
+                link $INFORMIXINITDIR/get_file $INFORMIXBINDIR/get_file
         else
-                ln -s $INFORMIXBINDIR/get_filesystem_file $INFORMIXBINDIR/get_file
+                link $INFORMIXBINDIR/get_filesystem_file $INFORMIXBINDIR/get_file
         fi
-
-        chown -h informix:informix $INFORMIXBINDIR/get_file
 
 }
 
 generate_configuration () {
 
+	if [ -e $INFORMIXETCDIR/sqlhosts.informix ]; then
+		rm -f $INFORMIXETCDIR/sqlhosts.informix
+	fi	
+
 	log "Generating sqlhosts file."
         echo "informix_shm         onipcshm        $HOSTNAME       fakeport" >> $INFORMIXETCDIR/sqlhosts.informix
         echo "informix_tcp         onsoctcp        $HOSTNAME       sqlexec" >> $INFORMIXETCDIR/sqlhosts.informix
+
+        if [ ! -e /etc/services.orig ]; then
+                cp /etc/services /etc/services.orig
+        fi
+
+        cp /etc/services.orig /etc/services
 
         echo "sqlexec        1536/tcp       #IBM Informix" >> /etc/services
 
@@ -88,7 +101,7 @@ generate_configuration () {
 ensure_instance_created () {
 	if [ ! -e $INFORMIXDATADIR/installed ]; then
 		rm -rf $INFORMIXCHUNKSDIR/*
-		rm -f $INFORMIXDEVLINKS/*
+		rm -f $INFORMIXDEVLINKSDIR/*
 		if [ -e $INFORMIXINITDIR/create_instance ]; then
 			log "Creating instance [$INFORMIXINITDIR/create_instance]."
 			chmod 700 $INFORMIXINITDIR/create_instance
@@ -147,6 +160,7 @@ redirect_online_log () {
 	service rsyslog start
         tail -f $INFORMIXLOGDIR/online.log | awk -Winteractive '$1="";/^\d*/ {print }' | logger -t informix &
 
+	cron
 }
 
 fix_dev_files () {
@@ -157,7 +171,7 @@ ensure_environment () {
 	process_container_variables
 	adjust_filesystem
 	generate_configuration
-	redirect_logging
+	redirect_online_log
 }
 
 
@@ -166,16 +180,12 @@ setup () {
 	ensure_environment
 	ensure_instance_created
 
-#	cron
-
-	complete_install
 }
 
 teardown () {
 	log "Killing background jobs."
-	kill $(jobs -p)
 	kill $(ps -ef | awk '/^syslog/ {print $2}')	
-#	kill $(ps -ef | awk '$8=="cron" {print $2}')
+	kill $(ps -ef | awk '$8=="cron" {print $2}')
 }
 
 run_command () {
@@ -224,7 +234,6 @@ trap teardown SIGINT SIGTERM EXIT
 log "entrypoint [$@]."
 
 setup
-complete_install
 run_command $@
 
 exit 0 

@@ -20,6 +20,12 @@ error () {
 setup () {
 	mkdir -p /tmp/export
 	chown -R informix:informix /tmp/export
+
+	log "Generating onconfig."
+
+        generate_onconfig
+
+
 	log "Starting Informix in Single User mode [oninit -j]."
 	oninit -j
 }

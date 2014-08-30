@@ -34,12 +34,14 @@ enable_continuous_protection () {
 
 setup () {
 	
-	cron
-
 	. $INFORMIXETCDIR/cserve.bashrc
 
 	rm /home/informix/.bashrc
         ln -s $INFORMIXETCDIR/cserve.bashrc /home/informix/.bashrc
+
+	log "Generating onconfig."
+
+        generate_onconfig
 
 	log "Starting Informix in Single User mode [oninit -j]."
 	oninit -j
@@ -47,8 +49,6 @@ setup () {
 }
 
 teardown () {
-
-	kill $(ps -ef | awk '$8=="cron" {print $2}')	
 
 	onmode -ky
  	

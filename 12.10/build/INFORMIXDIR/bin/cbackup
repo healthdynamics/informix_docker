@@ -19,6 +19,11 @@ error () {
 
 setup () {
 	mkdir -p /tmp/backup
+
+        log "Generating onconfig."
+
+        generate_onconfig
+
 	log "Starting Informix in Single User mode [oninit -j]."
 	oninit -j
 }

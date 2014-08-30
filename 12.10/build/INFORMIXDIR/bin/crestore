@@ -76,6 +76,11 @@ restore_to_log () {
 
 setup () {
 	mkdir /tmp/restore
+
+ 	log "Generating onconfig."
+
+        generate_onconfig
+
 }
 
 teardown () {

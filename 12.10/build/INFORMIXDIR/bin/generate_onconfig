@@ -23,15 +23,16 @@ source_onconfig () {
 
 write_onconfig () {
 
-	if [ -e $INFORMIXETCDIR/onconfig.informix]; then
+	if [ -e $INFORMIXETCDIR/onconfig.informix ]; then
 		rm -f $INFORMIXETCDIR/onconfig.informix
 	fi
 
-        echo "##### AUTO-GENERATED ETCURATION FILE #####" >> $INFORMIXETCDIR/onconfig.informix
+        echo "##### AUTO-GENERATED ETCURATION FILE #####" >> $INFORMIXETCDIR/.onconfig.informix
         for i in "${!onconfig[@]}"
         do
-                echo "${onconfig[$i]}" >> $INFORMIXETCDIR/onconfig.informix
+                echo "${onconfig[$i]}" >> $INFORMIXETCDIR/.onconfig.informix
         done
+	mv $INFORMIXETCDIR/.onconfig.informix $INFORMIXETCDIR/onconfig.informix
         chown informix:informix $INFORMIXETCDIR/onconfig.informix
 }
 
@@ -50,3 +51,5 @@ generate_onconfig () {
 
 }
 
+generate_onconfig
+write_onconfig
