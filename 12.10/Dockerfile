@@ -21,7 +21,8 @@ RUN /tmp/build/start
 
 # Include downstream build files
 ONBUILD ADD init /var/lib/informix/init
-ONBUILD ADD informix.tar /tmp/build
+ONBUILD ADD build /tmp/build
+#ONBUILD ADD bin/informix.tar /tmp/build
 
 # Complete the build
 ONBUILD RUN /tmp/build/complete && \

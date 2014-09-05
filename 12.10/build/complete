@@ -7,18 +7,26 @@
 # found in the LICENSE file.                                                   #
 ################################################################################
 
-BUILDDIR=/tmp/build
+export BUILDDIR=/tmp/build
 
 install_informix_engine () {
 	if [ -e $INFORMIXINITDIR/install.properties ]; then
-        	$BUILDDIR/ids_install -f $INFORMIXINITDIR/install.properties -i silent 
+        	$BUILDDIR/ids_installer/ids_install -f $INFORMIXINITDIR/install.properties -i silent 
 	else
-        	$BUILDDIR/ids_install -f $BUILDDIR/install.properties -i silent
+        	$BUILDDIR/ids_installer/ids_install -f $BUILDDIR/install.properties -i silent
 	fi;
+}
+
+get_informix_installer() {
+	chmod +x $BUILDDIR/get_informix
+	$BUILDDIR/get_informix $BUILDDIR/informix.tar
+	mkdir $BUILDDIR/ids_installer
+	tar -C $BUILDDIR/ids_installer -xf $BUILDDIR/informix.tar
 }
 
 set -e
 
 . $BUILDDIR/INFORMIXDIR/etc/all.bashrc
 
+get_informix_installer
 install_informix_engine
