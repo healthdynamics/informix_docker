@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ################################################################################
-# Copyright (c) 2014, the informix-sa project authors.                         #
+# Copyright (c) 2014, the informix-docker project authors.                     #
 # Please see the AUTHORS file for details. All rights reserved. Use of this    #
 # source code is governed by the BSD 3 Clause license, a copy of which can be  #
 # found in the LICENSE file.                                                   #
@@ -51,36 +51,51 @@ import () {
 	log "Getting export file [$1]."
 	get_file $1 /tmp/import/import.tar
 	tar -C /tmp/import/extracted -xf /tmp/import/import.tar
-
 	file=`basename $1`
-	for f in `ls -d /tmp/import/extracted/$file/*.exp`; do
-        	dbdir=`basename $f`
-        	IFS='.' read -a array2 <<< "$dbdir"
+	basedir="/tmp/import/extracted/$file"
 
-		if [[ "" != "$(echo "select * from sysdatabases where name='${array2[0]}'" | dbaccess sysmaster | grep ${array2[0]})" ]]; then
-      
-			log "Dropping database [${array2[0]}]".
-	              	cmd="DROP DATABASE ${array2[0]}"
-                	echo $cmd | dbaccess
+	if [ -z $2 ]; then
+		dbs=()
+		for f in `ls -d $basedir/*.exp`; do
+			dbs+=(`basename $f .exp`)
+		done
+	else
+		IFS=':' read -a dbs <<< "$2"
+	fi
 
-		fi
+	echo "dbs ${dbs[@]}"
 
-        	log "Importing database [${array2[0]}]."
-        	#TODO provide flag for -d
-        	dbimport ${array2[0]} -d ${array2[0]} -i /tmp/import/extracted/$file
-        	log "Enabling transactions [ontape -s -B ${array2[0]} -t /dev/null]."
-        	echo 0 | ontape -s -B ${array2[0]} -t /dev/null
-	done
+	for db in "${dbs[@]}"
+	do
+		import_db $basedir $db
+        done
 
 	log "Import completed".
 }
+
+import_db () {
+	if [[ "" != "$(echo "select * from sysdatabases where name='$2'" | dbaccess sysmaster | grep $2)" ]]; then
+		log "Dropping database [$2]".
+                cmd="DROP DATABASE $2"
+                echo $cmd | dbaccess
+	fi
+
+        log "Importing database [$2]."
+        #TODO provide flag for -d
+        dbimport $2 -d $2 -i $1
+        log "Enabling transactions [ontape -s -B $2 -t /dev/null]."
+        echo 0 | ontape -s -B $2 -t /dev/null
+
+}
+
 
 trap 'error $SCRIPT $LINENO "$BASH_COMMAND" $?' ERR
 set -e
 trap teardown SIGINT SIGTERM EXIT
 
 setup
-import $1
+
+import $1 $2
 
 exit 0	
 
